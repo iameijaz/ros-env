@@ -10,8 +10,8 @@ Every ROS developer knows this pain:
 
 ```bash
 # every. single. terminal.
-source /opt/ros/jazzy/setup.bash
-source ~/ros2_ws/install/local_setup.sh
+source /opt/ros/jazzy/setup.bash # [normal cases]
+source ~/ros2_ws/install/local_setup.sh # [if build from source]
 ```
 
 And when you have multiple workspaces across different distros, you either edit `.bashrc` back and forth or forget to source and spend ten minutes debugging why `ros2 topic list` isn't working.
