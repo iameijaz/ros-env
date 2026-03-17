@@ -1,5 +1,5 @@
 #!/bin/bash
-# ros_direnv_setup.sh
+# rosenv.sh
 # Detects your ROS installation, sets up direnv, and adds ros-init to ~/.bashrc
 
 set -e
