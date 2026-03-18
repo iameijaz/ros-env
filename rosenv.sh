@@ -47,25 +47,22 @@ if [[ "${1}" == "--uninstall" ]]; then
   echo "    Shell: $CURRENT_SHELL  →  $RC_FILE"
   echo ""
 
-  # Remove ros-init block from rc file
   if grep -q 'ros-init' "$RC_FILE" 2>/dev/null; then
-    # Back up rc file first
     cp "$RC_FILE" "${RC_FILE}.bak"
     echo "    backed up $RC_FILE  →  ${RC_FILE}.bak"
 
     if [[ "$CURRENT_SHELL" == "fish" ]]; then
-      # Remove fish function block: from '# ros-init' to 'end'
       sed -i '/# ros-init: run inside any ROS workspace/,/^end$/d' "$RC_FILE"
+      sed -i '/# ros-fix: re-init a moved workspace/,/^end$/d' "$RC_FILE"
     else
-      # Remove bash/zsh function block: from '# ros-init' to closing '}'
       sed -i '/# ros-init: run inside any ROS workspace/,/^}$/d' "$RC_FILE"
+      sed -i '/# ros-fix: re-init a moved workspace/,/^}$/d' "$RC_FILE"
     fi
-    echo "    removed ros-init from $RC_FILE"
+    echo "    removed ros-init and ros-fix from $RC_FILE"
   else
     echo "    ros-init not found in $RC_FILE, skipping"
   fi
 
-  # Remove direnv hook line from rc file
   if grep -q 'direnv hook' "$RC_FILE" 2>/dev/null; then
     sed -i '/direnv hook/d' "$RC_FILE"
     echo "    removed direnv hook from $RC_FILE"
@@ -73,7 +70,6 @@ if [[ "${1}" == "--uninstall" ]]; then
     echo "    direnv hook not found in $RC_FILE, skipping"
   fi
 
-  # Offer to remove .envrc files from workspaces
   echo ""
   read -rp "==> Remove .envrc files from all subdirectories of home? [y/n]: " REMOVE_ENVRC
   if [[ "$REMOVE_ENVRC" =~ ^[Yy]$ ]]; then
@@ -90,7 +86,6 @@ if [[ "${1}" == "--uninstall" ]]; then
     echo "    skipping .envrc cleanup"
   fi
 
-  # Offer to uninstall direnv
   echo ""
   read -rp "==> Uninstall direnv itself? [y/n]: " REMOVE_DIRENV
   if [[ "$REMOVE_DIRENV" =~ ^[Yy]$ ]]; then
@@ -204,39 +199,61 @@ else
   echo "    already present, skipping"
 fi
 
-# ── Add ros-init function ─────────────────────────────────────────────────────
-echo "==> Adding ros-init to $RC_FILE..."
+# ── Add ros-init and ros-fix functions ────────────────────────────────────────
+echo "==> Adding ros-init and ros-fix to $RC_FILE..."
 if ! grep -q 'ros-init' "$RC_FILE" 2>/dev/null; then
 
-  if [[ -n "$ROS_LOCAL" ]]; then
-    ENVRC_BODY="source ${ROS_SETUP}\nsource ${ROS_LOCAL}"
-  else
-    ENVRC_BODY="source ${ROS_SETUP}"
-  fi
-
   if [[ "$CURRENT_SHELL" == "fish" ]]; then
-    cat >> "$RC_FILE" << EOF
+    cat >> "$RC_FILE" << 'EOF'
 
 # ros-init: run inside any ROS workspace to set up auto-sourcing
+# uses paths relative to the workspace so moving it never breaks
 function ros-init
-  printf "${ENVRC_BODY}\n" > .envrc
+  set WSDIR (pwd)
+  printf "WORKSPACE_DIR=\"%s\"\n[ -f \"\$WORKSPACE_DIR/install/setup.bash\" ] && source \"\$WORKSPACE_DIR/install/setup.bash\"\n[ -f \"\$WORKSPACE_DIR/install/local_setup.sh\" ] && source \"\$WORKSPACE_DIR/install/local_setup.sh\"\n" $WSDIR > .envrc
   direnv allow
   echo "Done. cd out and back in to activate."
 end
+
+# ros-fix: re-init a moved workspace — rewrites .envrc with correct current path
+function ros-fix
+  if not test -f .envrc
+    echo "No .envrc found here. Run ros-init instead."
+    return 1
+  end
+  ros-init
+  echo "Fixed .envrc for "(pwd)
+end
 EOF
   else
-    cat >> "$RC_FILE" << EOF
+    cat >> "$RC_FILE" << 'EOF'
 
 # ros-init: run inside any ROS workspace to set up auto-sourcing
+# uses paths relative to the workspace so moving it never breaks
 ros-init() {
-  printf "${ENVRC_BODY}\n" > .envrc
+  cat > .envrc << ENVRC
+WORKSPACE_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+[ -f "\$WORKSPACE_DIR/install/setup.bash" ] && source "\$WORKSPACE_DIR/install/setup.bash"
+[ -f "\$WORKSPACE_DIR/install/local_setup.sh" ] && source "\$WORKSPACE_DIR/install/local_setup.sh"
+ENVRC
   direnv allow
   echo "Done. cd out and back in to activate."
 }
+
+# ros-fix: re-init a moved workspace — rewrites .envrc with correct current path
+ros-fix() {
+  if [ ! -f .envrc ]; then
+    echo "No .envrc found here. Run ros-init instead."
+    return 1
+  fi
+  ros-init
+  echo "Fixed .envrc for $(pwd)"
+}
+
 EOF
   fi
 
-  echo "    added ros-init"
+  echo "    added ros-init and ros-fix"
 else
   echo "    already present, skipping"
 fi
@@ -249,6 +266,9 @@ source "$RC_FILE" 2>/dev/null || true
 echo ""
 echo "All done. To activate any new ROS workspace:"
 echo "  cd ~/your_ws && ros-init"
+echo ""
+echo "Moved a workspace and paths broke?"
+echo "  cd ~/your_ws && ros-fix"
 echo ""
 echo "To undo everything later:"
 echo "  bash ros_direnv_setup.sh --uninstall"
